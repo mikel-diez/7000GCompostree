@@ -1,3 +1,9 @@
+#include <DHT.h>
+
+#define DHTPIN 32
+#define DHTTYPE DHT11 
+
+
 #define TINY_GSM_MODEM_SIM7000
 #define SerialMon Serial
 #define SerialAT Serial1
@@ -24,9 +30,16 @@ const char topicInit[] = "initTopic";
 const char topicLat[] = "topicLat"; 
 const char topicLon[] = "topicLon";  // Topic for latitude data
 
+const char topicTemp[] = "topicTemp"; 
+const char topicHum[] = "topicHum"; 
+
+float temp;
+float hum;
+
 char lonBuffer[20]; 
 char latBuffer[20]; 
-char tmpBuffer[20]; 
+char tempBuffer[10]; 
+char humBuffer[10];
 
 
 unsigned long lastLatPublish = 0;  // Timestamp of the last latitude publish
@@ -87,6 +100,7 @@ Ticker tick;
 int ledStatus = LOW;
 
 uint32_t lastReconnectAttempt = 0;
+DHT dht(DHTPIN, DHTTYPE);
 
 void mqttCallback(char *topic, byte *payload, unsigned int len)
 {
@@ -97,20 +111,9 @@ void mqttCallback(char *topic, byte *payload, unsigned int len)
     SerialMon.write(payload, len);
     SerialMon.println();
 
-    // Only proceed if incoming message's topic matches
-    if (String(topic) == topicLed) {
-        ledStatus = !ledStatus;
-        digitalWrite(LED_PIN, ledStatus);
-        SerialMon.print("ledStatus:");
-        SerialMon.println(ledStatus);
-        mqtt.publish(topicLedStatus, ledStatus ? "1" : "0");
-
-    }
 }
 void enableGPS(void)
 {
-    // Set Modem GPS Power Control Pin to HIGH ,turn on GPS power
-    // Only in version 20200415 is there a function to control GPS power
     modem.sendAT("+CGPIO=0,48,1,1");
     if (modem.waitResponse(10000L) != 1) {
         DBG("Set GPS Power HIGH Failed");
@@ -120,8 +123,7 @@ void enableGPS(void)
 
 void disableGPS(void)
 {
-    // Set Modem GPS Power Control Pin to LOW ,turn off GPS power
-    // Only in version 20200415 is there a function to control GPS power
+  
     modem.sendAT("+CGPIO=0,48,1,0");
     if (modem.waitResponse(10000L) != 1) {
         DBG("Set GPS Power LOW Failed");
@@ -154,7 +156,7 @@ void setup()
     // Set console baud rate
     Serial.begin(115200);
     delay(10);
-
+    dht.begin();
     // Set LED OFF
     pinMode(LED_PIN, OUTPUT);
     digitalWrite(LED_PIN, HIGH);
@@ -243,6 +245,11 @@ void setup()
 
     if (modem.isGprsConnected()) {
         SerialMon.println("GPRS connected");
+          modem.sendAT("+CPSI?");
+          String r = SerialAT.readString();
+          SerialMon.println(r);
+          DBG("Set GPS Power LOW Failed");
+
     }
 #endif
 
@@ -252,8 +259,8 @@ void setup()
 
 
 
-        enableGPS();
-
+    enableGPS();
+    Serial.println("Searching for GPS signal, pls wait...");
     while (1) {
         if (modem.getGPS(&lat, &lon)) {
             Serial.println("The location has been locked, the latitude and longitude are:");
@@ -264,8 +271,6 @@ void setup()
             dtostrf(lat, 0, 10, latBuffer);  // Convert the float to a char array with 6 digits after the decimal point
             break;
         }
-        digitalWrite(LED_PIN, !digitalRead(LED_PIN));
-        delay(2000);
     }
 
     disableGPS();
@@ -322,11 +327,34 @@ void loop()
 
     mqtt.loop();
 
-    if (millis() - lastLatPublish > 2000) {
-      lastLatPublish = millis();
-      mqtt.publish(topicLat, latBuffer);
-      mqtt.publish(topicLat, lonBuffer);
+ if (millis() - lastLatPublish > 8000) {
+    lastLatPublish = millis();
 
+    // Leer datos del sensor DHT11
+    temp = dht.readTemperature();
+    hum = dht.readHumidity();
+
+    if (!isnan(temp) && !isnan(hum)) {
+        // Convertir los valores a strings
+        dtostrf(temp, 1, 2, tempBuffer);
+        dtostrf(hum, 1, 2, humBuffer);
+
+        // Asegurarse de que la conexión MQTT está activa
+        if (!mqtt.connected()) {
+            mqttConnect();  // Implementa una función de reconexión
+        }
+
+        // Publicar los mensajes
+        mqtt.publish(topicTemp, tempBuffer);
+        delay(10);  // Pequeña pausa para estabilizar
+        mqtt.publish(topicHum, humBuffer);
+        delay(10);
+        mqtt.publish(topicLat, latBuffer);
+        delay(10);
+        mqtt.publish(topicLon, lonBuffer);
+    } else {
+        Serial.println("Error al leer del DHT11");
     }
+}
 
 }
