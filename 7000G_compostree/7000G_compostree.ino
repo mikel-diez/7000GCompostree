@@ -24,14 +24,28 @@ const char wifiPass[] = "YourWiFiPass";
 // MQTT details
 const char *broker = "broker.emqx.io";
 
-const char topicLed[] = "ledTopic";
-const char topicLedStatus[] = "ledStatusTopic";
-const char topicInit[] = "initTopic";
-const char topicLat[] = "topicLat"; 
-const char topicLon[] = "topicLon";  // Topic for latitude data
 
-const char topicTemp[] = "topicTemp"; 
-const char topicHum[] = "topicHum"; 
+
+
+
+// const char topicLed[] = "ledTopic";
+// const char topicLedStatus[] = "ledStatusTopic";
+const char topicInit[] = "initTopic";
+// const char topicLat[] = "topicLat"; 
+// const char topicLon[] = "topicLon";  // Topic for latitude data
+
+ const char topicLat[] = "/dev2/localization/lat";
+ const char topicLon[] = "/dev2/localization/lon";
+
+ const char topicTemp[] = "/dev2/sensor/tmp";
+ const char topicHum[] = "/dev2/sensor/hum";
+
+ //const char topicPLMN[] = "/dev1/metrics/plmn";
+ 
+
+
+
+
 
 float temp;
 float hum;
@@ -327,34 +341,38 @@ void loop()
 
     mqtt.loop();
 
- if (millis() - lastLatPublish > 8000) {
+if (millis() - lastLatPublish > 8000) {
     lastLatPublish = millis();
 
-    // Leer datos del sensor DHT11
+    // Asegurar la conexión MQTT está activa
+    if (!mqtt.connected()) {
+        mqttConnect();  
+    }
+
+   
     temp = dht.readTemperature();
-    hum = dht.readHumidity();
-
-    if (!isnan(temp) && !isnan(hum)) {
-        // Convertir los valores a strings
+    if (!isnan(temp)) {
         dtostrf(temp, 1, 2, tempBuffer);
-        dtostrf(hum, 1, 2, humBuffer);
-
-        // Asegurarse de que la conexión MQTT está activa
-        if (!mqtt.connected()) {
-            mqttConnect();  // Implementa una función de reconexión
-        }
-
-        // Publicar los mensajes
         mqtt.publish(topicTemp, tempBuffer);
-        delay(10);  // Pequeña pausa para estabilizar
+        delay(10);
+    } else {
+        Serial.println("Error al leer la temperatura del DHT11");
+    }
+
+  
+    hum = dht.readHumidity();
+    if (!isnan(hum)) {
+        dtostrf(hum, 1, 2, humBuffer);
         mqtt.publish(topicHum, humBuffer);
         delay(10);
-        mqtt.publish(topicLat, latBuffer);
-        delay(10);
-        mqtt.publish(topicLon, lonBuffer);
     } else {
-        Serial.println("Error al leer del DHT11");
+        Serial.println("Error al leer la humedad del DHT11");
     }
+
+    mqtt.publish(topicLat, latBuffer);
+    delay(10);
+    mqtt.publish(topicLon, lonBuffer);
 }
+
 
 }
