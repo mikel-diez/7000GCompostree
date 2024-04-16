@@ -1,3 +1,9 @@
+/*
+Mikel Diez Garcia (arraiz) - (mikel.diez@somorrostro.com)
+Device2 (dev2) for NB-IOT comm sensing 
+*/
+
+
 #include <DHT.h>
 
 #define DHTPIN 32
@@ -23,10 +29,15 @@ const char wifiPass[] = "YourWiFiPass";
 
 // MQTT details
 const char *broker = "broker.emqx.io";
+//const char *broker = "212.142.148.52";
 
 
 
+/*MD: las metricas mqtt cuelgan asi 
 
+/dev{$}/sensor/# donde $ es el numero de device y # donde # es una medicion
+
+*/
 
 // const char topicLed[] = "ledTopic";
 // const char topicLedStatus[] = "ledStatusTopic";
@@ -34,11 +45,16 @@ const char topicInit[] = "initTopic";
 // const char topicLat[] = "topicLat"; 
 // const char topicLon[] = "topicLon";  // Topic for latitude data
 
- const char topicLat[] = "/dev2/localization/lat";
- const char topicLon[] = "/dev2/localization/lon";
+ const char topicStatus[] = "/dev2/sensor/up";
+
+ const char topicLat[] = "/dev2/sensor/lat";
+ const char topicLon[] = "/dev2/sensor/lon";
 
  const char topicTemp[] = "/dev2/sensor/tmp";
  const char topicHum[] = "/dev2/sensor/hum";
+
+
+//definir que metricas queremos sacar de aqui
 
  //const char topicPLMN[] = "/dev1/metrics/plmn";
  
@@ -268,6 +284,7 @@ void setup()
 #endif
 
     // MQTT Broker setup
+    //mqtt.setServer(broker, 1243);
     mqtt.setServer(broker, 1883);
     mqtt.setCallback(mqttCallback);
 
