@@ -5,7 +5,7 @@ Device2 (dev2) for NB-IOT comm sensing
 
 
 #include <DHT.h>
-
+#include <ArduinoJson.h>
 #define DHTPIN 32
 #define DHTTYPE DHT11 
 
@@ -18,7 +18,8 @@ Device2 (dev2) for NB-IOT comm sensing
 #define TINY_GSM_USE_WIFI false
 #define GSM_PIN ""
 
-
+const int device = 1; 
+const int topicLen = 100;
 const char apn[]      = "nb.es.vodafone.iot";
 const char gprsUser[] = "";
 const char gprsPass[] = "";
@@ -29,38 +30,23 @@ const char wifiPass[] = "YourWiFiPass";
 
 // MQTT details
 const char *broker = "broker.emqx.io";
-//const char *broker = "212.142.148.52";
 
 
-
-/*MD: las metricas mqtt cuelgan asi 
-
-/dev{$}/sensor/# donde $ es el numero de device y # donde # es una medicion
-
-*/
-
-// const char topicLed[] = "ledTopic";
-// const char topicLedStatus[] = "ledStatusTopic";
 const char topicInit[] = "initTopic";
-// const char topicLat[] = "topicLat"; 
-// const char topicLon[] = "topicLon";  // Topic for latitude data
-
- const char topicStatus[] = "/dev2/sensor/up";
-
- const char topicLat[] = "/dev2/sensor/lat";
- const char topicLon[] = "/dev2/sensor/lon";
-
- const char topicTemp[] = "/dev2/sensor/tmp";
- const char topicHum[] = "/dev2/sensor/hum";
 
 
-//definir que metricas queremos sacar de aqui
 
- //const char topicPLMN[] = "/dev1/metrics/plmn";
+char topicStatus[topicLen];
+char topicNo[topicLen];
+char topicLat[topicLen];
+char topicLon[topicLen];
+char topicTemp[topicLen];
+char topicHum[topicLen];
+char topicCo2[topicLen];
+char topicPos[topicLen];  
+
+
  
-
-
-
 
 
 float temp;
@@ -70,19 +56,31 @@ char lonBuffer[20];
 char latBuffer[20]; 
 char tempBuffer[10]; 
 char humBuffer[10];
+char co2Buffer[10];
+char noBuffer[10];
 
 
 unsigned long lastLatPublish = 0;  // Timestamp of the last latitude publish
 
-float lat,  lon;
+float lat,  lon, co2;
 
 #include <TinyGsmClient.h>
 #include <PubSubClient.h>
 #include <Ticker.h>
 #include <SPI.h>
 #include <SD.h>
+#include <MQUnifiedsensor.h>
 
-// Just in case someone defined the wrong thing..
+
+
+#define         Board                   ("ESP-32") // Wemos ESP-32 or other board, whatever have ESP32 core.
+#define         Pin                     (36) //check the esp32-wroom-32d.jpg image on ESP32 folder 
+#define         Type                    ("MQ-3") //MQ2 or other MQ Sensor, if change this verify your a and b values.
+#define         Voltage_Resolution      (3.3) // 3V3 <- IMPORTANT. Source: https://randomnerdtutorials.com/esp32-adc-analog-read-arduino-ide/
+#define         ADC_Bit_Resolution      (12) // ESP-32 bit resolution. Source: https://randomnerdtutorials.com/esp32-adc-analog-read-arduino-ide/
+#define         RatioMQ2CleanAir        (9.83) //RS / R0 = 9.83 ppm
+MQUnifiedsensor MQ2(Board, Voltage_Resolution, ADC_Bit_Resolution, Pin, Type);
+
 #if TINY_GSM_USE_GPRS && not defined TINY_GSM_MODEM_HAS_GPRS
 #undef TINY_GSM_USE_GPRS
 #undef TINY_GSM_USE_WIFI
@@ -186,6 +184,33 @@ void setup()
     // Set console baud rate
     Serial.begin(115200);
     delay(10);
+
+    sprintf(topicStatus, "/dev/%d/sensor/up", device);
+    sprintf(topicNo, "/dev/%d/sensor/no", device);
+    sprintf(topicLat, "/dev/%d/sensor/lat", device);
+    sprintf(topicLon, "/dev/%d/sensor/lon", device);
+    sprintf(topicTemp, "/dev/%d/sensor/tmp", device);
+    sprintf(topicHum, "/dev/%d/sensor/hum", device);
+    sprintf(topicCo2, "/dev/%d/sensor/co2", device);
+    sprintf(topicPos, "/json/dev/%d/sensor/pos", device);
+
+
+    MQ2.setRegressionMethod(1); //_PPM =  a*ratio^b
+    MQ2.setA(987.99); MQ2.setB(-2.162); // Configure the equation to to calculate H2 concentration
+    MQ2.init(); 
+    Serial.print("Calibrating please wait.");
+    float calcR0 = 0;
+    for(int i = 1; i<=10; i ++)
+    {
+    MQ2.update(); // Update data, the arduino will read the voltage from the analog pin
+    calcR0 += MQ2.calibrate(RatioMQ2CleanAir);
+    Serial.print(".");
+    }
+    MQ2.setR0(calcR0/10);
+    Serial.println("  done!.");
+    if(isinf(calcR0)) {Serial.println("Warning: Conection issue, R0 is infinite (Open circuit detected) please check your wiring and supply"); while(1);}
+    if(calcR0 == 0){Serial.println("Warning: Conection issue found, R0 is zero (Analog pin shorts to ground) please check your wiring and supply"); while(1);}
+    
     dht.begin();
     // Set LED OFF
     pinMode(LED_PIN, OUTPUT);
@@ -358,7 +383,19 @@ void loop()
 
     mqtt.loop();
 
-if (millis() - lastLatPublish > 8000) {
+
+ StaticJsonDocument<200> jsonDoc;
+  jsonDoc["lat"] = lat; 
+  jsonDoc["lon"] = lon; 
+  jsonDoc["no"] = device; 
+
+
+
+  char JSONbuffer[200];
+  serializeJson(jsonDoc, JSONbuffer);
+
+
+if (millis() - lastLatPublish > 10000) {
     lastLatPublish = millis();
 
     // Asegurar la conexión MQTT está activa
@@ -368,6 +405,9 @@ if (millis() - lastLatPublish > 8000) {
 
    
     temp = dht.readTemperature();
+    MQ2.update();
+    co2 = MQ2.readSensor();
+    dtostrf(co2, 1, 2, co2Buffer);
     if (!isnan(temp)) {
         dtostrf(temp, 1, 2, tempBuffer);
         mqtt.publish(topicTemp, tempBuffer);
@@ -378,6 +418,7 @@ if (millis() - lastLatPublish > 8000) {
 
   
     hum = dht.readHumidity();
+    
     if (!isnan(hum)) {
         dtostrf(hum, 1, 2, humBuffer);
         mqtt.publish(topicHum, humBuffer);
@@ -389,6 +430,14 @@ if (millis() - lastLatPublish > 8000) {
     mqtt.publish(topicLat, latBuffer);
     delay(10);
     mqtt.publish(topicLon, lonBuffer);
+    delay(10);
+    mqtt.publish(topicCo2, co2Buffer);
+    delay(10);
+    mqtt.publish(topicNo, "2");
+    delay(10);
+    mqtt.publish(topicPos, JSONbuffer);
+    delay(10);
+    Serial.println("Data Sent");
 }
 
 
