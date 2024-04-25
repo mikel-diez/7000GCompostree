@@ -24,6 +24,8 @@ const char apn[]      = "nb.es.vodafone.iot";
 const char gprsUser[] = "";
 const char gprsPass[] = "";
 
+unsigned long reconnectStartTime = 0;
+
 // Your WiFi connection credentials, if applicable
 const char wifiSSID[] = "YourSSID";
 const char wifiPass[] = "YourWiFiPass";
@@ -194,6 +196,12 @@ void setup()
     sprintf(topicCo2, "/dev/%d/sensor/co2", device);
     sprintf(topicPos, "/json/dev/%d/sensor/pos", device);
 
+
+
+    Serial.print("device: ");
+    Serial.println(device);
+
+    sprintf(noBuffer, "%d", device);
 
     MQ2.setRegressionMethod(1); //_PPM =  a*ratio^b
     MQ2.setA(987.99); MQ2.setB(-2.162); // Configure the equation to to calculate H2 concentration
@@ -371,10 +379,24 @@ void loop()
         SerialMon.println("=== MQTT NOT CONNECTED ===");
         // Reconnect every 10 seconds
         uint32_t t = millis();
+        
+        if (reconnectStartTime == 0) {
+        reconnectStartTime = t;  // Guarda el momento inicial
+        }
+
+
+        if (t - reconnectStartTime > 60000L) {
+            SerialMon.println("Unable to connect after 1 minute, resetting...");
+            ESP.restart(); 
+        }
+
+
         if (t - lastReconnectAttempt > 10000L) {
             lastReconnectAttempt = t;
+            SerialMon.println("Reconecting");
             if (mqttConnect()) {
                 lastReconnectAttempt = 0;
+                 reconnectStartTime = 0;
             }
         }
         delay(100);
@@ -399,9 +421,9 @@ if (millis() - lastLatPublish > 10000) {
     lastLatPublish = millis();
 
     // Asegurar la conexión MQTT está activa
-    if (!mqtt.connected()) {
-        mqttConnect();  
-    }
+    // if (!mqtt.connected()) {
+    //     mqttConnect();  
+    // }
 
    
     temp = dht.readTemperature();
@@ -433,7 +455,7 @@ if (millis() - lastLatPublish > 10000) {
     delay(10);
     mqtt.publish(topicCo2, co2Buffer);
     delay(10);
-    mqtt.publish(topicNo, "2");
+    mqtt.publish(topicNo, noBuffer);
     delay(10);
     mqtt.publish(topicPos, JSONbuffer);
     delay(10);
